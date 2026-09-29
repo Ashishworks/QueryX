@@ -3,6 +3,7 @@ import { buildIndex } from "../indexer/build-index";
 import { processQuery } from "./query";
 import { rankDocuments } from "./ranking";
 import { getTopK } from "./top-k";
+import { getSearchResults } from "./snippets";
 
 const index = buildIndex();
 
@@ -19,7 +20,6 @@ const queryResult = processQuery(
 
 const rankedResults = rankDocuments(
   queryResult,
-  index,
   totalDocuments
 );
 
@@ -28,15 +28,24 @@ const topResults = getTopK(
   5
 );
 
+const searchResults = getSearchResults(
+  topResults,
+  queryResult.terms
+);
+
 console.log("Total documents:", totalDocuments);
 
 console.log("\nQuery:");
 console.log(queryResult.query);
 
-console.log("\nTop 5 results:");
+console.log("\nSearch results:");
 
-for (const result of topResults) {
-  console.log(
-    `doc ${result.docId} → score ${result.score.toFixed(4)}`
-  );
+for (const result of searchResults) {
+  console.log("\n-----------------------------");
+
+  console.log("Doc ID:", result.docId);
+  console.log("Title:", result.title);
+  console.log("URL:", result.url);
+  console.log("Score:", result.score.toFixed(4));
+  console.log("Snippet:", result.snippet);
 }

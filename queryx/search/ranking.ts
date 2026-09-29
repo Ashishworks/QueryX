@@ -1,5 +1,4 @@
 import type { QueryResult } from "./query";
-import type { InvertedIndex } from "../indexer/inverted-index";
 
 export type RankedDocument = {
   docId: number;
@@ -23,7 +22,6 @@ function calculateIDF(
 
 export function rankDocuments(
   queryResult: QueryResult,
-  index: InvertedIndex,
   totalDocuments: number
 ): RankedDocument[] {
   const scores = new Map<number, number>();
