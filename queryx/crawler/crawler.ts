@@ -9,7 +9,7 @@ import {
   waitForDomain,
 } from "./safety";
 import { canCrawl } from "./robots";
-import type { CrawlTask } from "./types";
+import { saveDocument } from "../storage/database";
 
 export async function crawl(
   seeds: string[],
@@ -83,6 +83,9 @@ export async function crawl(
 
     // Parse HTML
     const document = parseHtml(html, url);
+
+    // Save parsed document to SQLite
+    saveDocument(document);
 
     console.log(`Title: ${document.title}`);
     console.log(`Links found: ${document.links.length}`);
