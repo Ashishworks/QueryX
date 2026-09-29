@@ -1,69 +1,136 @@
-import Image from "next/image";
+"use client";
+
+import { FormEvent, useState } from "react";
+
+type SearchResult = {
+  docId: number;
+  title: string;
+  url: string;
+  snippet: string;
+  score: number;
+};
+
+type SearchResponse = {
+  query: string;
+  terms: string[];
+  results: SearchResult[];
+};
 
 export default function Home() {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
+
+  async function handleSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmedQuery = query.trim();
+
+    if (!trimmedQuery) {
+      return;
+    }
+
+    setLoading(true);
+    setSearched(true);
+
+    try {
+      const response = await fetch(
+        `/api/search?q=${encodeURIComponent(trimmedQuery)}`
+      );
+
+      if (!response.ok) {
+        throw new Error("Search request failed");
+      }
+
+      const data: SearchResponse = await response.json();
+
+      setResults(data.results);
+    } catch (error) {
+      console.error("Search failed:", error);
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <main className="min-h-screen bg-white text-zinc-900">
+      <div className="mx-auto w-full max-w-4xl px-6 py-16">
+        <header className="mb-10 text-center">
+          <h1 className="text-5xl font-semibold tracking-tight">
+            QueryX
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+
+          <p className="mt-3 text-zinc-500">
+            A lightweight search engine built from scratch.
           </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        </header>
+
+        <form
+          onSubmit={handleSearch}
+          className="mx-auto flex max-w-2xl gap-3"
+        >
+          <input
+            type="text"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search..."
+            className="h-12 flex-1 rounded-xl border border-zinc-300 px-4 outline-none transition focus:border-zinc-600"
+          />
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="h-12 rounded-xl bg-zinc-900 px-6 font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+            {loading ? "Searching..." : "Search"}
+          </button>
+        </form>
+
+        {searched && !loading && (
+          <div className="mt-10">
+            <p className="mb-6 text-sm text-zinc-500">
+              {results.length} result
+              {results.length === 1 ? "" : "s"} for{" "}
+              <span className="font-medium text-zinc-900">
+                &quot;{query}&quot;
+              </span>
+            </p>
+
+            <div className="space-y-8">
+              {results.map((result) => (
+                <article key={result.docId}>
+                  <a
+                    href={result.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group"
+                  >
+                    <h2 className="text-xl font-medium text-blue-700 group-hover:underline">
+                      {result.title}
+                    </h2>
+
+                    <p className="mt-1 truncate text-sm text-green-700">
+                      {result.url}
+                    </p>
+                  </a>
+
+                  <p className="mt-2 text-sm leading-6 text-zinc-600">
+                    {result.snippet}
+                  </p>
+                </article>
+              ))}
+            </div>
+
+            {results.length === 0 && (
+              <div className="py-12 text-center text-zinc-500">
+                No results found.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
