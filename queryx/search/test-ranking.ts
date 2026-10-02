@@ -14,7 +14,7 @@ const totalDocuments = (
 ).count;
 
 const queryResult = processQuery(
-  "react hooks",
+  "javascript promises",
   index
 );
 

@@ -1,8 +1,7 @@
+import { crawlerConfig } from "../config/crawler";
 import { crawl } from "./crawler";
 
 crawl(
-  [
-    "https://react.dev",
-  ],
-  10
+  crawlerConfig.seeds,
+  crawlerConfig.maxPages
 );

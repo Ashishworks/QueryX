@@ -1,7 +1,7 @@
 export const crawlerConfig = {
-  maxPages: 100,
-  maxDepth: 2,
-  maxPagesPerDomain: 50,
+  maxPages: 500,
+  maxDepth: 3,
+  maxPagesPerDomain: 100,
 
   requestDelayMs: 1000,
   requestTimeoutMs: 10000,
@@ -11,5 +11,8 @@ export const crawlerConfig = {
   seeds: [
     "https://developer.mozilla.org/",
     "https://react.dev/",
+    "https://nextjs.org/docs",
+    "https://www.typescriptlang.org/docs/",
+    "https://nodejs.org/docs/latest/api/",
   ],
 };
