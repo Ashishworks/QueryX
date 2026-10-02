@@ -37,10 +37,25 @@ export function rankDocuments(
     );
 
     for (const posting of postings) {
+      const normalizedTitleTF =
+        posting.titleTF > 0
+          ? 1 + Math.log(posting.titleTF)
+          : 0;
+
+      const normalizedHeadingTF =
+        posting.headingTF > 0
+          ? 1 + Math.log(posting.headingTF)
+          : 0;
+
+      const normalizedBodyTF =
+        posting.bodyTF > 0
+          ? 1 + Math.log(posting.bodyTF)
+          : 0;
+
       const weightedTF =
-        posting.titleTF * TITLE_WEIGHT +
-        posting.headingTF * HEADING_WEIGHT +
-        posting.bodyTF * BODY_WEIGHT;
+        normalizedTitleTF * TITLE_WEIGHT +
+        normalizedHeadingTF * HEADING_WEIGHT +
+        normalizedBodyTF * BODY_WEIGHT;
 
       const termScore = weightedTF * idf;
 
