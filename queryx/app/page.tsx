@@ -1,4 +1,4 @@
-"use client";
+  "use client";
 
 import { FormEvent, useRef, useState } from "react";
 import SearchHeader from "@/components/search/SearchHeader";
@@ -69,11 +69,11 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#fafafa] text-zinc-900 selection:bg-blue-100 selection:text-blue-900">
       <div
-        className={`mx-auto w-full max-w-3xl px-6 transition-all duration-700 ease-in-out ${
-          searched ? "pt-12 md:pt-16" : "pt-[25vh]"
-        }`}
+        className={`mx-auto w-full max-w-3xl px-6 transition-all duration-700 ease-in-out ${searched ? "pt-12 md:pt-16" : "pt-[25vh]"
+          }`}
       >
         <SearchHeader />
+
 
         <SearchBar
           query={query}
@@ -82,7 +82,13 @@ export default function Home() {
           onQueryChange={setQuery}
           onSubmit={handleSearch}
           onClear={clearSearch}
+          onSuggestionSelect={(value) => {
+            setQuery(value);
+            search(value);
+            inputRef.current?.blur();
+          }}
         />
+
 
         {!searched && <SearchSuggestions onSuggestionClick={handleSuggestion} />}
 
