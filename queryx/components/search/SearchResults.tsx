@@ -1,5 +1,7 @@
 import { Globe, Search } from "lucide-react";
 import { SearchResult } from "@/types/search";
+import NoResultIcon from "@/components/icons/noResult";
+import NoResultIcon2 from "@/components/icons/noResult2";
 
 type SearchResultsProps = {
   query: string;
@@ -76,10 +78,14 @@ export default function SearchResults({
         </div>
       ) : (
         /* No Results */
-        <div className="mt-20 flex flex-col items-center justify-center text-center">
-          <div className="mb-4 rounded-full bg-zinc-100 p-4">
-            <Search className="h-8 w-8 text-zinc-400" />
+        <div className="mt-10 flex flex-col items-center justify-center text-center">
+          <div className="flex h-54 w-54 items-center justify-center">
+            <NoResultIcon />
           </div>
+
+          {/* <div className="flex h-54 w-54 items-center justify-center">
+            <NoResultIcon2 />
+          </div> */}
 
           <h3 className="mb-2 text-xl font-semibold text-zinc-900">
             No results found
