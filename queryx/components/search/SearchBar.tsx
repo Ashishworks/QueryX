@@ -34,10 +34,16 @@ export default function SearchBar({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const requestId = useRef(0);
+  const skipNextFetch = useRef(false);
 
   useEffect(() => {
-    const currentRequestId = ++requestId.current;
-    const prefix = query.trim();
+  if (skipNextFetch.current) {
+    skipNextFetch.current = false;
+    return;
+  }
+
+  const currentRequestId = ++requestId.current;
+  const prefix = query.trim();
 
     if (!prefix) {
       setSuggestions([]);
@@ -94,15 +100,17 @@ export default function SearchBar({
     } else if (event.key === "Enter" && activeIndex >= 0) {
       event.preventDefault();
       onSuggestionSelect(suggestions[activeIndex]);
-      setShowSuggestions(false);
     }
   }
 
   function selectSuggestion(value: string) {
-    setShowSuggestions(false);
-    setActiveIndex(-1);
-    onSuggestionSelect(value);
-  }
+  skipNextFetch.current = true;
+  requestId.current++;
+  setShowSuggestions(false);
+  setSuggestions([]);
+  setActiveIndex(-1);
+  onSuggestionSelect(value);
+}
 
   return (
     <div className="relative mx-auto w-full max-w-2xl">
