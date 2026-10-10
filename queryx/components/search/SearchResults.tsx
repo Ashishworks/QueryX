@@ -6,13 +6,15 @@ type SearchResultsProps = {
   results: SearchResult[];
   loading: boolean;
 };
-
+function cleanTitle(title: string): string {
+  return title.split(/\s[–—-]\s/).slice(0, 2).join(" - ");
+}
 export default function SearchResults({
   query,
   results,
   loading,
 } // Fix missing closing parenthesis here if needed
-: SearchResultsProps) {
+  : SearchResultsProps) {
   if (loading) {
     return (
       <div className="mt-12 space-y-8">
@@ -60,8 +62,8 @@ export default function SearchResults({
                 rel="noopener noreferrer"
                 className="block w-fit"
               >
-                <h2 className="text-xl font-semibold text-blue-600 underline-offset-4 decoration-blue-600/30 group-hover:underline">
-                  {result.title}
+                <h2 className="line-clamp-2 text-xl font-semibold text-blue-600 underline-offset-4 decoration-blue-600/30 group-hover:underline">
+                  {cleanTitle(result.title)}
                 </h2>
               </a>
 
