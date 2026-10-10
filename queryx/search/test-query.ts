@@ -1,9 +1,13 @@
+
 import { buildIndex } from "../indexer/build-index";
 import { processQuery } from "./query";
+import { db } from "../storage/database";
 
-const index = buildIndex();
+const builtIndex = buildIndex();
+const index = builtIndex.index;
 
 console.log("Indexed terms:", index.size);
+console.log("Total documents:", builtIndex.totalDocuments);
 
 const result = processQuery("react hooks", index);
 
@@ -23,3 +27,5 @@ for (const termResult of result.results) {
 
 console.log("\nCandidate documents:");
 console.log(result.candidateDocIds);
+
+db.close();

@@ -1,8 +1,17 @@
+
 export type Posting = {
   docId: number;
   titleTF: number;
   headingTF: number;
   bodyTF: number;
+};
+
+
+export type DocumentStats = {
+  docId: number;
+  titleLength: number;
+  headingLength: number;
+  bodyLength: number;
 };
 
 export type InvertedIndex = Map<string, Posting[]>;

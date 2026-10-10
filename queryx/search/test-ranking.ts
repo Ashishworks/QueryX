@@ -1,3 +1,4 @@
+
 import { db } from "../storage/database";
 import { buildIndex } from "../indexer/build-index";
 import { processQuery } from "./query";
@@ -5,47 +6,44 @@ import { rankDocuments } from "./ranking";
 import { getTopK } from "./top-k";
 import { getSearchResults } from "./snippets";
 
-const index = buildIndex();
+const builtIndex = buildIndex();
 
-const totalDocuments = (
-  db
-    .prepare("SELECT COUNT(*) as count FROM documents")
-    .get() as { count: number }
-).count;
-
-const queryResult = processQuery(
+const queries = [
+  "react hooks",
   "javascript promises",
-  index
-);
+  "node http",
+  "xyznonexistent",
+];
 
-const rankedResults = rankDocuments(
-  queryResult,
-  totalDocuments
-);
+console.log("Total documents:", builtIndex.totalDocuments);
 
-const topResults = getTopK(
-  rankedResults,
-  5
-);
+for (const query of queries) {
+  const queryResult = processQuery(query, builtIndex.index);
 
-const searchResults = getSearchResults(
-  topResults,
-  queryResult.terms
-);
+  const rankedResults = rankDocuments(
+    queryResult,
+    builtIndex.totalDocuments,
+    builtIndex.documentStats,
+    {
+      title: builtIndex.averageTitleLength,
+      heading: builtIndex.averageHeadingLength,
+      body: builtIndex.averageBodyLength,
+    }
+  );
 
-console.log("Total documents:", totalDocuments);
+  const topResults = getTopK(rankedResults, 5);
+  const searchResults = getSearchResults(topResults, queryResult.terms);
 
-console.log("\nQuery:");
-console.log(queryResult.query);
+  console.log("\n================================");
+  console.log("Query:", query);
+  console.log("Results:", searchResults.length);
 
-console.log("\nSearch results:");
-
-for (const result of searchResults) {
-  console.log("\n-----------------------------");
-
-  console.log("Doc ID:", result.docId);
-  console.log("Title:", result.title);
-  console.log("URL:", result.url);
-  console.log("Score:", result.score.toFixed(4));
-  console.log("Snippet:", result.snippet);
+  for (const result of searchResults) {
+    console.log("\n-----------------------------");
+    console.log("Title:", result.title);
+    console.log("Score:", result.score.toFixed(4));
+    console.log("URL:", result.url);
+  }
 }
+
+db.close();

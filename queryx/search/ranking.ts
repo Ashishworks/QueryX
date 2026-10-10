@@ -1,34 +1,71 @@
+
 import type { QueryResult } from "./query";
+import type { DocumentStats } from "../indexer/inverted-index";
 
 export type RankedDocument = {
   docId: number;
   score: number;
 };
 
+export type AverageFieldLengths = {
+  title: number;
+  heading: number;
+  body: number;
+};
+
 const TITLE_WEIGHT = 3;
 const HEADING_WEIGHT = 2;
 const BODY_WEIGHT = 1;
+
+const K1 = 1.2;
+const B = 0.75;
 
 function calculateIDF(
   totalDocuments: number,
   documentFrequency: number
 ): number {
-  if (documentFrequency === 0) {
+  if (totalDocuments <= 0 || documentFrequency <= 0) {
     return 0;
   }
 
-  return Math.log(totalDocuments / documentFrequency);
+  return Math.log(
+    1 +
+      (totalDocuments - documentFrequency + 0.5) /
+        (documentFrequency + 0.5)
+  );
+}
+
+function calculateBM25TF(
+  termFrequency: number,
+  documentLength: number,
+  averageDocumentLength: number
+): number {
+  if (termFrequency <= 0) {
+    return 0;
+  }
+
+  const lengthNormalization =
+    averageDocumentLength > 0
+      ? 1 - B +
+        B * (documentLength / averageDocumentLength)
+      : 1;
+
+  return (
+    (termFrequency * (K1 + 1)) /
+    (termFrequency + K1 * lengthNormalization)
+  );
 }
 
 export function rankDocuments(
   queryResult: QueryResult,
-  totalDocuments: number
+  totalDocuments: number,
+  documentStats: Map<number, DocumentStats>,
+  averageLengths: AverageFieldLengths
 ): RankedDocument[] {
   const scores = new Map<number, number>();
 
   for (const termResult of queryResult.results) {
-    const { term, postings } = termResult;
-
+    const { postings } = termResult;
     const documentFrequency = postings.length;
 
     const idf = calculateIDF(
@@ -37,27 +74,38 @@ export function rankDocuments(
     );
 
     for (const posting of postings) {
-      const normalizedTitleTF =
-        posting.titleTF > 0
-          ? 1 + Math.log(posting.titleTF)
-          : 0;
+      const stats = documentStats.get(posting.docId);
 
-      const normalizedHeadingTF =
-        posting.headingTF > 0
-          ? 1 + Math.log(posting.headingTF)
-          : 0;
+      if (!stats) {
+        continue;
+      }
 
-      const normalizedBodyTF =
-        posting.bodyTF > 0
-          ? 1 + Math.log(posting.bodyTF)
-          : 0;
+      const titleScore =
+        TITLE_WEIGHT *
+        calculateBM25TF(
+          posting.titleTF,
+          stats.titleLength,
+          averageLengths.title
+        );
 
-      const weightedTF =
-        normalizedTitleTF * TITLE_WEIGHT +
-        normalizedHeadingTF * HEADING_WEIGHT +
-        normalizedBodyTF * BODY_WEIGHT;
+      const headingScore =
+        HEADING_WEIGHT *
+        calculateBM25TF(
+          posting.headingTF,
+          stats.headingLength,
+          averageLengths.heading
+        );
 
-      const termScore = weightedTF * idf;
+      const bodyScore =
+        BODY_WEIGHT *
+        calculateBM25TF(
+          posting.bodyTF,
+          stats.bodyLength,
+          averageLengths.body
+        );
+
+      const termScore =
+        idf * (titleScore + headingScore + bodyScore);
 
       scores.set(
         posting.docId,
@@ -67,9 +115,6 @@ export function rankDocuments(
   }
 
   return [...scores.entries()]
-    .map(([docId, score]) => ({
-      docId,
-      score,
-    }))
+    .map(([docId, score]) => ({ docId, score }))
     .sort((a, b) => b.score - a.score);
 }
