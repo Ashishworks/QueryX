@@ -1,3 +1,4 @@
+
 import { buildIndex } from "../indexer/build-index";
 import { buildTrie } from "../indexer/build-trie";
 
@@ -8,21 +9,41 @@ const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 10;
 
 export function getSuggestions(
-  prefix: string,
-  limit = DEFAULT_LIMIT
+    query: string,
+    limit = DEFAULT_LIMIT
 ): string[] {
-  const normalizedPrefix = prefix
-    .toLowerCase()
-    .trim();
+    const trimmedQuery = query.trim();
 
-  if (!normalizedPrefix) {
-    return [];
-  }
+    if (!trimmedQuery) {
+        return [];
+    }
 
-  const safeLimit = Math.min(
-    Math.max(1, Math.floor(limit)),
-    MAX_LIMIT
-  );
+    const safeLimit = Math.min(
+        Math.max(1, Math.floor(limit)),
+        MAX_LIMIT
+    );
 
-  return trie.suggest(normalizedPrefix, safeLimit);
+    const lastSpaceIndex = trimmedQuery.lastIndexOf(" ");
+    const completedText = trimmedQuery.slice(0, lastSpaceIndex + 1);
+    const currentPrefix = trimmedQuery.slice(lastSpaceIndex + 1).toLowerCase();
+
+    if (!currentPrefix) {
+        return [];
+    }
+    const matchingTerms = trie
+        .suggest(currentPrefix, 100)
+        .filter(
+            (term) =>
+                term.length >= 3 &&
+                term !== currentPrefix
+        )
+        .sort((a, b) => {
+            const frequencyA = index.get(a)?.length ?? 0;
+            const frequencyB = index.get(b)?.length ?? 0;
+
+            return frequencyB - frequencyA || a.localeCompare(b);
+        })
+        .slice(0, safeLimit);
+
+    return matchingTerms.map((term) => `${completedText}${term}`);
 }
