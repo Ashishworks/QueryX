@@ -1,4 +1,3 @@
-
 "use client";
 
 import {
@@ -33,19 +32,17 @@ export default function SearchBar({
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+
   const requestId = useRef(0);
-  const skipNextFetch = useRef(false);
+  const dismissed = useRef(false);
+  const focused = useRef(false);
+  const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-  if (skipNextFetch.current) {
-    skipNextFetch.current = false;
-    return;
-  }
+    const currentId = ++requestId.current;
+    const prefix = query.trim();
 
-  const currentRequestId = ++requestId.current;
-  const prefix = query.trim();
-
-    if (!prefix) {
+    if (!prefix || dismissed.current || !focused.current) {
       setSuggestions([]);
       setShowSuggestions(false);
       return;
@@ -57,19 +54,23 @@ export default function SearchBar({
           `/api/search/suggestions?q=${encodeURIComponent(prefix)}`
         );
 
-        if (!response.ok) {
-          throw new Error("Suggestion request failed");
-        }
+        if (!response.ok) throw new Error("Suggestion request failed");
 
         const data: { suggestions: string[] } = await response.json();
 
-        if (requestId.current !== currentRequestId) return;
+        if (
+          requestId.current !== currentId ||
+          dismissed.current ||
+          !focused.current
+        ) {
+          return;
+        }
 
         setSuggestions(data.suggestions);
         setShowSuggestions(data.suggestions.length > 0);
         setActiveIndex(-1);
       } catch (error) {
-        if (requestId.current === currentRequestId) {
+        if (requestId.current === currentId) {
           console.error("Suggestion request failed:", error);
           setSuggestions([]);
           setShowSuggestions(false);
@@ -80,10 +81,28 @@ export default function SearchBar({
     return () => clearTimeout(timer);
   }, [query]);
 
+  function closeSuggestions() {
+    dismissed.current = true;
+    requestId.current++;
+
+    if (blurTimer.current) {
+      clearTimeout(blurTimer.current);
+      blurTimer.current = null;
+    }
+
+    setShowSuggestions(false);
+    setSuggestions([]);
+    setActiveIndex(-1);
+  }
+
+  function selectSuggestion(value: string) {
+    closeSuggestions();
+    onSuggestionSelect(value);
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "Escape") {
-      setShowSuggestions(false);
-      setActiveIndex(-1);
+      closeSuggestions();
       return;
     }
 
@@ -91,32 +110,23 @@ export default function SearchBar({
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveIndex((previous) => (previous + 1) % suggestions.length);
+      setActiveIndex((i) => (i + 1) % suggestions.length);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex((previous) =>
-        previous <= 0 ? suggestions.length - 1 : previous - 1
+      setActiveIndex((i) =>
+        i <= 0 ? suggestions.length - 1 : i - 1
       );
     } else if (event.key === "Enter" && activeIndex >= 0) {
       event.preventDefault();
-      onSuggestionSelect(suggestions[activeIndex]);
+      selectSuggestion(suggestions[activeIndex]);
     }
   }
-
-  function selectSuggestion(value: string) {
-  skipNextFetch.current = true;
-  requestId.current++;
-  setShowSuggestions(false);
-  setSuggestions([]);
-  setActiveIndex(-1);
-  onSuggestionSelect(value);
-}
 
   return (
     <div className="relative mx-auto w-full max-w-2xl">
       <form
         onSubmit={(event) => {
-          setShowSuggestions(false);
+          closeSuggestions();
           onSubmit(event);
         }}
         className="group relative z-20 flex w-full items-center overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition-all duration-300 ease-out hover:border-zinc-300 hover:shadow-md focus-within:border-blue-500 focus-within:shadow-lg focus-within:ring-4 focus-within:ring-blue-500/10"
@@ -128,14 +138,32 @@ export default function SearchBar({
           type="text"
           value={query}
           onChange={(event) => {
+            dismissed.current = false;
             onQueryChange(event.target.value);
             setShowSuggestions(true);
           }}
           onFocus={() => {
-            if (suggestions.length > 0) setShowSuggestions(true);
+            focused.current = true;
+
+            if (blurTimer.current) {
+              clearTimeout(blurTimer.current);
+              blurTimer.current = null;
+            }
+
+            if (dismissed.current) return;
+
+            if (query.trim() && suggestions.length > 0) {
+              setShowSuggestions(true);
+            }
           }}
           onBlur={() => {
-            setTimeout(() => setShowSuggestions(false), 150);
+            focused.current = false;
+
+            blurTimer.current = setTimeout(() => {
+              if (!focused.current) {
+                setShowSuggestions(false);
+              }
+            }, 150);
           }}
           onKeyDown={handleKeyDown}
           autoComplete="off"
@@ -152,6 +180,8 @@ export default function SearchBar({
             <button
               type="button"
               onClick={() => {
+                dismissed.current = false;
+                requestId.current++;
                 setSuggestions([]);
                 setShowSuggestions(false);
                 setActiveIndex(-1);
@@ -196,10 +226,11 @@ export default function SearchBar({
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => selectSuggestion(suggestion)}
-                className={`flex w-full items-center gap-3 px-5 py-3 text-left text-sm transition-colors ${index === activeIndex
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-zinc-700 hover:bg-zinc-50"
-                  }`}
+                className={`flex w-full items-center gap-3 px-5 py-3 text-left text-sm transition-colors ${
+                  index === activeIndex
+                    ? "bg-blue-50 text-blue-700"
+                    : "text-zinc-700 hover:bg-zinc-50"
+                }`}
               >
                 <Search className="h-4 w-4 shrink-0 text-zinc-400" />
                 {suggestion}

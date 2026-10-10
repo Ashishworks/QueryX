@@ -1,4 +1,4 @@
-"use client";
+  "use client";
 
 import { FormEvent, useRef, useState } from "react";
 import SearchHeader from "@/components/search/SearchHeader";
