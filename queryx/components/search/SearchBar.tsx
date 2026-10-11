@@ -8,7 +8,9 @@ import {
   useState,
   KeyboardEvent,
 } from "react";
-import { Search, X, Loader2, ArrowRight } from "lucide-react";
+import { Search, X, Loader2 } from "lucide-react";
+
+import LoadingIcon from "../icons/loading";
 
 type SearchBarProps = {
   query: string;
@@ -198,12 +200,13 @@ export default function SearchBar({
             type="submit"
             disabled={loading || !query.trim()}
             aria-label="Search"
-            className="group/btn flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm transition-all duration-300 ease-out hover:bg-blue-700 hover:shadow-md focus:outline-none focus:ring-4 focus:ring-blue-500/20 active:scale-90 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-400 disabled:shadow-none"
+            // Changed classes below: removed bg, removed shadows, changed text color to match the design
+            className="group/btn flex h-10 w-10 bg-transparent items-center justify-center rounded-xl text-zinc-400 transition-all duration-300 ease-out hover:text-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-500/20 active:scale-90 disabled:cursor-not-allowed disabled:text-zinc-300"
           >
             {loading ? (
               <Loader2 className="h-5 w-5 animate-spin" />
             ) : (
-              <ArrowRight className="h-5 w-5 transition-transform duration-300 ease-out group-hover/btn:translate-x-0.5" />
+              <LoadingIcon />
             )}
           </button>
         </div>
