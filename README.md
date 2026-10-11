@@ -1,2411 +1,431 @@
 # QueryX
 
-> A local-first, lightweight search engine built from scratch to understand how real information-retrieval systems work.
+> A local-first search engine built from scratch to explore crawling, information retrieval, ranking, and autocomplete.
 
-QueryX is a personal search engine that crawls a controlled collection of real websites, stores the extracted documents locally, builds its own inverted index, ranks search results, generates snippets, and provides Trie-based autocomplete through a Next.js interface.
+QueryX is a lightweight developer-documentation search engine built with TypeScript and Next.js. It crawls a controlled collection of websites, stores extracted documents in a local SQLite database, builds an in-memory inverted index, ranks results using field-aware BM25, and provides Trie-based autocomplete.
 
-The project is intentionally designed as a **V1 learning and engineering project** rather than an attempt to reproduce the infrastructure of Google, Bing, Elasticsearch, or another production-scale search engine.
-
-The goal is to build the complete fundamental search pipeline ourselves:
-
-```text
-Seed URLs
-    ↓
-Crawler
-    ↓
-URL Queue + Visited Set
-    ↓
-URL Canonicalization
-    ↓
-HTML Parser
-    ↓
-SQLite Document Store
-    ↓
-Text Processing
-    ↓
-Inverted Index
-    ↓
-Query Processing
-    ↓
-TF-IDF / BM25 Ranking
-    ↓
-Top-K Min-Heap
-    ↓
-Snippet Generation
-    ↓
-Next.js Search UI
-```
-
-Autocomplete follows a separate path:
-
-```text
-Indexed Vocabulary
-       ↓
-      Trie
-       ↓
-Prefix Matching
-       ↓
-Suggestions
-       ↓
-Search Box
-```
-
----
+The goal is to understand how the fundamental pieces of a search engine work together—from crawling and indexing to retrieval, ranking, and presenting results—without relying on a hosted search service or large-scale infrastructure.
 
 ## Table of Contents
 
-- [1. Project Overview](#1-project-overview)
-- [2. Why QueryX Exists](#2-why-queryx-exists)
-- [3. Project Goals](#3-project-goals)
-- [4. V1 Scope](#4-v1-scope)
-- [5. Non-Goals](#5-non-goals)
-- [6. Core Concepts Demonstrated](#6-core-concepts-demonstrated)
-- [7. Architecture](#7-architecture)
-- [8. End-to-End Data Flow](#8-end-to-end-data-flow)
-- [9. Technology Stack](#9-technology-stack)
-- [10. Project Structure](#10-project-structure)
-- [11. Crawler](#11-crawler)
-- [12. URL Canonicalization](#12-url-canonicalization)
-- [13. Crawl Frontier](#13-crawl-frontier)
-- [14. Crawl Safety](#14-crawl-safety)
-- [15. HTML Parsing](#15-html-parsing)
-- [16. SQLite Document Store](#16-sqlite-document-store)
-- [17. Text Processing](#17-text-processing)
-- [18. Inverted Index](#18-inverted-index)
-- [19. Field-Aware Postings](#19-field-aware-postings)
-- [20. Query Processing](#20-query-processing)
-- [21. Ranking](#21-ranking)
-- [22. Top-K Min-Heap](#22-top-k-min-heap)
-- [23. Snippet Generation](#23-snippet-generation)
-- [24. Trie Autocomplete](#24-trie-autocomplete)
-- [25. Next.js Application](#25-nextjs-application)
-- [26. Index Lifecycle and Runtime State](#26-index-lifecycle-and-runtime-state)
-- [27. Configuration](#27-configuration)
-- [28. Installation](#28-installation)
-- [29. Running QueryX](#29-running-queryx)
-- [30. Development Workflow](#30-development-workflow)
-- [31. Testing Strategy](#31-testing-strategy)
-- [32. Benchmarking](#32-benchmarking)
-- [33. Performance Expectations](#33-performance-expectations)
-- [34. Failure Handling](#34-failure-handling)
-- [35. V1 Milestones](#35-v1-milestones)
-- [36. V1 Acceptance Criteria](#36-v1-acceptance-criteria)
-- [37. Future V2 Ideas](#37-future-v2-ideas)
-- [38. Design Principles](#38-design-principles)
-- [39. Learning Objectives](#39-learning-objectives)
-- [40. License and Responsible Crawling](#40-license-and-responsible-crawling)
+- [Overview](#overview)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Search Pipeline](#search-pipeline)
+- [Autocomplete](#autocomplete)
+- [Technology Stack](#technology-stack)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Development and Tests](#development-and-tests)
+- [Current Design Notes](#current-design-notes)
+- [Roadmap](#roadmap)
+- [Design Principles](#design-principles)
+- [Responsible Crawling](#responsible-crawling)
 
----
+## Overview
 
-# 1. Project Overview
+QueryX is designed as a local learning and engineering project. It implements the core parts of a traditional keyword-based search system using data structures and algorithms directly.
 
-QueryX is a **local-first search engine** designed to demonstrate the fundamental components behind a traditional keyword-based web search system.
+At a high level, the project:
 
-The application runs entirely on a developer's laptop. It does not require cloud infrastructure, authentication, a hosted database, Redis, a vector database, or a distributed cluster.
+1. Crawls a controlled set of developer-focused websites.
+2. Canonicalizes URLs and avoids duplicate discovery.
+3. Parses pages and extracts titles, headings, body text, and links.
+4. Stores documents persistently in SQLite.
+5. Tokenizes document fields and builds an inverted index.
+6. Processes user queries against the index.
+7. Scores candidate documents using field-aware BM25.
+8. Selects the highest-scoring results.
+9. Generates snippets from stored document text.
+10. Displays results in a Next.js interface.
 
-A typical QueryX workflow is:
+QueryX is intended for a modest local corpus, not as a replacement for production-scale search infrastructure.
 
-1. Configure a small set of seed websites.
-2. Start the crawler.
-3. Discover pages by following links.
-4. Canonicalize URLs and prevent duplicates.
-5. Respect basic crawling restrictions.
-6. Parse downloaded HTML.
-7. Extract titles, headings, body text, and outgoing links.
-8. Store documents in SQLite.
-9. Normalize and tokenize document text.
-10. Build a field-aware inverted index.
-11. Build a Trie for autocomplete.
-12. Enter a query in the web interface.
-13. Retrieve candidate documents from the inverted index.
-14. Calculate relevance scores.
-15. Maintain the best K results with a Min-Heap.
-16. Retrieve document metadata from SQLite.
-17. Generate short relevant snippets.
-18. Display ranked results in the Next.js interface.
+## Features
 
-The initial target is approximately:
+### Crawling and document storage
 
-```text
-1,000 pages
-```
-
-After the system is stable, the corpus can be increased toward:
-
-```text
-2,000–5,000 pages
-```
-
-The system should be benchmarked as the corpus grows.
-
----
-
-# 2. Why QueryX Exists
-
-Many software projects use data structures only in isolated coding exercises.
-
-For example:
-
-```text
-Queue → BFS problem
-HashMap → frequency problem
-Heap → Top-K problem
-Trie → prefix problem
-```
-
-QueryX uses these concepts in a connected real-world system.
-
-Each data structure has a specific responsibility:
-
-| Concept | QueryX Usage |
-|---|---|
-| Queue | Manage URLs waiting to be crawled |
-| HashSet | Prevent duplicate URL discovery |
-| Map / HashMap | Store inverted-index structures |
-| Trie | Prefix-based autocomplete |
-| Min-Heap / Priority Queue | Maintain Top-K search results |
-| Graph concepts | Model the implicit web-link structure |
-| SQLite indexes | Efficient persistent document lookup |
-| TF-IDF / BM25 | Calculate document relevance |
-
-The project is therefore intended to bridge the gap between:
-
-```text
-DSA theory
-     ↓
-Algorithms
-     ↓
-Data structures
-     ↓
-Information retrieval
-     ↓
-Real software architecture
-```
-
----
-
-# 3. Project Goals
-
-The primary goals of QueryX V1 are:
-
-### 3.1 Build a complete search pipeline
-
-The system should work from:
-
-```text
-URL
-→ webpage
-→ document
-→ index
-→ query
-→ ranking
-→ result
-```
-
-### 3.2 Implement important data structures ourselves
-
-The project should provide practical implementations of:
-
-- Queue
-- Set
-- Map-based inverted index
-- Trie
-- Min-Heap / Priority Queue
-
-### 3.3 Understand information retrieval
-
-The project should demonstrate:
-
-- Tokenization
-- Normalization
-- Term Frequency
-- Document Frequency
-- Inverse Document Frequency
-- TF-IDF
-- Optional BM25
-- Field weighting
-- Candidate retrieval
-- Top-K retrieval
-
-### 3.4 Keep the architecture understandable
-
-Every component should have a clear reason to exist.
-
-The project should avoid infrastructure that does not provide meaningful value at this scale.
-
-### 3.5 Use real websites
-
-The crawler should operate on real developer-focused websites, subject to their crawling policies.
-
-Possible seed websites include:
-
-- MDN
-- React documentation
-- Next.js documentation
-- Node.js documentation
-- TypeScript documentation
-
-The exact seed set is configurable.
-
----
-
-# 4. V1 Scope
-
-QueryX V1 includes:
-
-### Crawler
-
-- Seed URLs
-- URL queue
-- Visited URL Set
-- URL canonicalization
-- Relative URL resolution
-- Domain limits
-- Crawl depth limits
-- Maximum total pages
-- Response-size limits
-- HTML-only filtering
-- Request timeout
-- Request delay
+- URL canonicalization and duplicate handling
+- Queue-based crawl frontier and visited/discovered URL tracking
+- HTML parsing and extraction of searchable document content
+- Crawl safety controls, including domain and depth limits
 - `robots.txt` support
-- Per-domain scheduling
+- Local persistent storage with SQLite
+- URL uniqueness with insert-or-update behavior
 
-### Parser
+### Indexing and retrieval
 
-- HTML parsing with `htmlparser2`
-- Title extraction
-- Heading extraction
-- Visible body text extraction
-- Outgoing link extraction
+- Shared tokenization for document fields and queries
+- In-memory inverted index implemented with `Map`
+- Field-level term frequencies for titles, headings, and body text
+- Document-length statistics for ranking
+- Candidate retrieval from term postings
+- Field-aware BM25 ranking
+- Min-Heap implementation for Top-K selection
+- SQLite lookup to assemble result metadata
+- Query-term-based snippet generation
 
-### Storage
+### Autocomplete and interface
 
-- SQLite
-- Persistent document storage
-- URL uniqueness
-- Crawl metadata
-- Optional content hashing
+- Trie built from the indexed vocabulary
+- Prefix-based suggestions for the current query word
+- Suggestions ordered by document frequency, with alphabetical tie-breaking
+- Debounced autocomplete requests
+- Keyboard navigation with arrow keys, Enter, and Escape
+- Protection against stale suggestion responses
+- Search result loading states and empty-result UI
+- Rotating example queries on the initial page
 
-### Indexing
+## Architecture
 
-- Tokenization
-- Lowercase normalization
-- Punctuation handling
-- Optional stop-word removal
-- Field-specific term frequency
-- Document frequency
-- Inverted index
-- Trie vocabulary
-
-### Search
-
-- Query normalization
-- Candidate retrieval
-- TF-IDF
-- Optional BM25
-- Title/heading/body weighting
-- Top-K retrieval
-- Min-Heap
-- SQLite metadata lookup
-- Snippet generation
-
-### Frontend
-
-- Search box
-- Autocomplete
-- Result cards
-- Titles
-- URLs
-- Snippets
-- Search latency
-- Basic corpus statistics
-
----
-
-# 5. Non-Goals
-
-The following are intentionally excluded from QueryX V1.
-
-### Distributed crawling
-
-No:
-
-- crawler cluster
-- distributed frontier
-- sharding
-- domain hashing
-- worker orchestration
-
-### Advanced storage engines
-
-No:
-
-- LSM tree
-- MemTable
-- SSTable
-- custom binary index format
-- segment merging
-
-### Large-scale infrastructure
-
-No:
-
-- Redis
-- Kafka
-- Elasticsearch
-- OpenSearch
-- cloud databases
-- Kubernetes
-- microservices
-
-### Advanced search
-
-No:
-
-- Boolean search
-- phrase search
-- positional indexes
-- fuzzy search
-- spelling correction
-- semantic search
-- embeddings
-- vector database
-- LLM-based ranking
-
-### Advanced ranking
-
-No:
-
-- PageRank
-- learning-to-rank
-- neural ranking
-- click-through-rate models
-
-### Other
-
-No:
-
-- authentication
-- multi-user support
-- Chrome extension
-- paid APIs
-- public deployment requirement
-- C++ implementation
-
-These features may become future experiments if actual V1 limitations justify them.
-
----
-
-# 6. Core Concepts Demonstrated
-
-## Queue
-
-The crawler maintains URLs waiting to be processed.
+The document collection and search structures are local. SQLite stores the source documents, while the inverted index and Trie are derived in-memory structures.
 
 ```text
-Queue:
+                  CRAWLING AND INDEXING
 
-A → B → C → D
-↑
-next
+Seed URLs
+   |
+   v
+Crawler + URL Frontier
+   |
+   v
+Canonicalization / Safety / robots.txt
+   |
+   v
+HTML Parser
+   |
+   v
+SQLite Document Store
+   |
+   v
+Tokenizer + Index Builder
+   |
+   +-------------------------+
+   |                         |
+   v                         v
+Inverted Index              Trie
+   |                         |
+   v                         v
+Query Processing         Autocomplete API
+   |
+   v
+Field-Aware BM25
+   |
+   v
+Top-K Selection
+   |
+   v
+SQLite Metadata + Snippets
+   |
+   v
+Search API
+   |
+   v
+Next.js Search UI
 ```
 
-This provides a natural breadth-first crawling strategy.
+## Search Pipeline
 
----
-
-## HashSet
-
-The crawler uses a Set to remember discovered URLs.
+When a user submits a query such as `react hooks`, QueryX follows this path:
 
 ```text
-visited = {
-    https://example.com,
-    https://example.com/docs,
-    https://example.com/about
-}
-```
-
-Before adding a URL:
-
-```text
-canonicalize(url)
-       ↓
-visited?
-       ↓
-   no → add
-```
-
-This prevents repeated crawling.
-
----
-
-## Map
-
-The inverted index is naturally represented with a Map:
-
-```text
-term → postings
-```
-
-Example:
-
-```text
-react → [...]
-hooks → [...]
-javascript → [...]
-```
-
----
-
-## Trie
-
-The Trie provides prefix lookup:
-
-```text
-rea
- ↓
-react
-reactive
-```
-
----
-
-## Min-Heap
-
-The ranking layer may encounter hundreds of candidate documents.
-
-If only the top 10 results are required, QueryX can maintain:
-
-```text
-heap size = 10
-```
-
-instead of sorting every candidate.
-
----
-
-# 7. Architecture
-
-The high-level architecture is:
-
-```text
-                        ┌───────────────┐
-                        │   Seed URLs   │
-                        └───────┬───────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │     Crawler     │
-                       └────────┬────────┘
-                                │
-                    ┌───────────┼───────────┐
-                    │           │           │
-                    ▼           ▼           ▼
-                 Queue       Visited    Canonicalizer
-                    │           │
-                    └─────┬─────┘
-                          │
-                          ▼
-                   Per-domain scheduler
-                          │
-                          ▼
-                     HTTP Fetch
-                          │
-                          ▼
-                    robots.txt
-                          │
-                          ▼
-                    HTML Parser
-                          │
-             ┌────────────┼────────────┐
-             ▼            ▼            ▼
-           Title       Headings       Body
-             │            │            │
-             └────────────┼────────────┘
-                          │
-                          ▼
-                        SQLite
-                          │
-                          ▼
-                      Indexer
-                          │
-              ┌───────────┴───────────┐
-              ▼                       ▼
-       Inverted Index               Trie
-              │                       │
-              ▼                       ▼
-       Query Processing          Autocomplete
-              │
-              ▼
-       Candidate Retrieval
-              │
-              ▼
-       TF-IDF / BM25
-              │
-              ▼
-        Field Boosting
-              │
-              ▼
-          Min-Heap
-              │
-              ▼
-            Top-K
-              │
-              ▼
-        SQLite Metadata
-              │
-              ▼
-        Snippet Generation
-              │
-              ▼
-         Search API
-              │
-              ▼
-         Next.js UI
-```
-
----
-
-# 8. End-to-End Data Flow
-
-Suppose the user searches:
-
-```text
-react hooks
-```
-
-The complete search path is:
-
-```text
-User Query
-    ↓
-"react hooks"
-    ↓
+User query
+   |
+   v
 Tokenization
-    ↓
-["react", "hooks"]
-    ↓
-Normalization
-    ↓
-["react", "hooks"]
-    ↓
-Inverted Index
-    ↓
-Candidate Documents
-    ↓
-TF-IDF / BM25
-    ↓
-Field Boosting
-    ↓
-Min-Heap
-    ↓
-Top 10 Documents
-    ↓
-SQLite
-    ↓
-Metadata + Text
-    ↓
-Snippet Generator
-    ↓
-JSON Response
-    ↓
-Next.js UI
+   |
+   v
+Inverted-index lookup
+   |
+   v
+Candidate document postings
+   |
+   v
+Field-aware BM25 scoring
+   |
+   v
+Top-K result selection
+   |
+   v
+Document metadata lookup
+   |
+   v
+Snippet generation
+   |
+   v
+JSON response
+   |
+   v
+Search results UI
 ```
 
-Autocomplete happens before the search:
+### Inverted index
 
-```text
-User types:
-
-rea
-
-    ↓
-
-Trie
-
-    ↓
-
-react
-reactive
-reaction
-```
-
----
-
-# 9. Technology Stack
-
-## Frontend
-
-- Next.js
-- React
-- TypeScript
-- Tailwind CSS
-
-## Crawler
-
-- TypeScript
-- Native `fetch`
-- `htmlparser2`
-- `robots-parser`
-
-## Database
-
-- SQLite
-- `better-sqlite3`
-
-## Search Engine
-
-Custom TypeScript implementation of:
-
-- Tokenization
-- Normalization
-- Inverted index
-- TF-IDF
-- Optional BM25
-- Min-Heap
-- Trie
-
-## Runtime
-
-Node.js
-
-## Development
-
-- Git
-- GitHub
-- VS Code
-
----
-
-# 10. Project Structure
-
-The current project intentionally does not use a `src/` directory.
-
-```text
-queryx/
-│
-├── app/
-│   ├── api/
-│   │   ├── search/
-│   │   └── autocomplete/
-│   ├── globals.css
-│   ├── layout.tsx
-│   └── page.tsx
-│
-├── crawler/
-│   ├── crawler.ts
-│   ├── fetcher.ts
-│   ├── frontier.ts
-│   ├── canonicalize.ts
-│   ├── robots.ts
-│   └── types.ts
-│
-├── parser/
-│   ├── html-parser.ts
-│   └── types.ts
-│
-├── storage/
-│   ├── database.ts
-│   ├── documents.ts
-│   └── schema.ts
-│
-├── indexer/
-│   ├── tokenizer.ts
-│   ├── normalizer.ts
-│   ├── inverted-index.ts
-│   ├── trie.ts
-│   └── types.ts
-│
-├── search/
-│   ├── query.ts
-│   ├── ranking.ts
-│   ├── top-k.ts
-│   └── snippets.ts
-│
-├── config/
-│   └── crawler.ts
-│
-├── data/
-│   └── queryx.db
-│
-├── public/
-│
-├── .gitignore
-├── package.json
-├── package-lock.json
-├── tsconfig.json
-├── next.config.ts
-└── README.md
-```
-
-The SQLite database should remain local and should be ignored by Git.
-
----
-
-# 11. Crawler
-
-The crawler is responsible for discovering and downloading documents.
-
-Its basic lifecycle is:
-
-```text
-Seed
- ↓
-Canonicalize
- ↓
-Check visited
- ↓
-Check robots.txt
- ↓
-Schedule
- ↓
-Fetch
- ↓
-Parse
- ↓
-Store
- ↓
-Extract links
- ↓
-Canonicalize links
- ↓
-Add new links
-```
-
-The crawler should initially operate on a controlled number of pages.
-
-Recommended progression:
-
-```text
-10 pages
- ↓
-100 pages
- ↓
-1,000 pages
- ↓
-2,000–5,000 pages
-```
-
----
-
-# 12. URL Canonicalization
-
-URL canonicalization prevents obvious duplicate URLs.
-
-Examples of possible normalization:
-
-```text
-https://example.com/page
-https://example.com/page/
-```
-
-Depending on the site, these may represent the same resource.
-
-Fragments should generally be removed:
-
-```text
-https://example.com/docs#hooks
-```
-
-becomes:
-
-```text
-https://example.com/docs
-```
-
-Obvious tracking parameters can also be removed.
-
-Examples:
-
-```text
-utm_source
-utm_medium
-utm_campaign
-utm_term
-utm_content
-```
-
-Canonicalization must be conservative.
-
-Query parameters should not be blindly removed because some websites legitimately use query parameters to identify different content.
-
----
-
-# 13. Crawl Frontier
-
-The frontier manages URLs that have been discovered but not yet crawled.
-
-The basic structure uses:
-
-```text
-Queue<CrawlTask>
-```
-
-where:
-
-```ts
-type CrawlTask = {
-    url: string;
-    depth: number;
-};
-```
-
-The frontier also maintains a visited/discovered Set.
-
-The crawler should mark a URL as discovered when it is accepted into the frontier rather than waiting until after downloading it.
-
-This prevents multiple pages from simultaneously enqueueing the same URL.
-
----
-
-# 14. Crawl Safety
-
-QueryX V1 should crawl conservatively.
-
-The crawler supports:
-
-### Maximum pages
-
-Example:
-
-```text
-MAX_PAGES = 1000
-```
-
-### Maximum depth
-
-Example:
-
-```text
-MAX_DEPTH = 3
-```
-
-### Maximum pages per domain
-
-Example:
-
-```text
-MAX_PAGES_PER_DOMAIN = 300
-```
-
-### Response size limit
-
-Large responses should be rejected.
-
-Example:
-
-```text
-MAX_RESPONSE_SIZE = 5 MB
-```
-
-### Request timeout
-
-A request should not wait forever.
-
-Example:
-
-```text
-TIMEOUT = 10 seconds
-```
-
-### HTML-only filtering
-
-Ignore resources such as:
-
-- images
-- videos
-- ZIP files
-- PDFs
-- audio
-- arbitrary binary files
-
-unless explicitly supported later.
-
-### robots.txt
-
-The crawler should respect the site's published crawling rules where applicable.
-
-### Request delay
-
-Requests to the same host should be separated by a conservative delay.
-
----
-
-# 15. HTML Parsing
-
-QueryX uses `htmlparser2`.
-
-The parser extracts:
-
-```text
-URL
-Title
-Headings
-Visible Text
-Outgoing Links
-```
-
-Example:
-
-```ts
-type ParsedDocument = {
-    url: string;
-    title: string;
-    headings: string[];
-    text: string;
-    links: string[];
-};
-```
-
-Scripts and styles should not be treated as ordinary document text.
-
-The goal is not to perfectly reproduce browser rendering.
-
-The goal is to obtain useful searchable content efficiently.
-
----
-
-# 16. SQLite Document Store
-
-SQLite is the persistent document store.
-
-It is appropriate for V1 because:
-
-- it is local
-- it is free
-- it requires no database server
-- it persists across application restarts
-- it can comfortably handle the intended corpus
-- it provides transactional storage
-- it keeps the architecture simple
-
-A basic document schema is:
-
-```text
-documents
----------
-id
-url
-title
-headings
-text
-crawl_time
-content_hash
-```
-
-Possible constraints:
-
-```text
-UNIQUE(url)
-```
-
-The exact schema may evolve during implementation.
-
----
-
-# 17. Text Processing
-
-Before indexing, documents must be normalized.
-
-Example:
-
-```text
-React Hooks: A Beginner's Guide!
-```
-
-may become:
-
-```text
-react
-hooks
-a
-beginner
-s
-guide
-```
-
-The processing pipeline can include:
-
-```text
-Raw Text
- ↓
-Lowercase
- ↓
-Tokenization
- ↓
-Punctuation handling
- ↓
-Whitespace normalization
- ↓
-Optional stop-word removal
- ↓
-Normalized tokens
-```
-
-V1 should avoid excessive linguistic complexity.
-
-Stemming can be considered only if it improves the observed search quality.
-
----
-
-# 18. Inverted Index
-
-The inverted index is the central search data structure.
-
-Instead of searching every document:
-
-```text
-document 1
-document 2
-document 3
-...
-document 5000
-```
-
-for every query, QueryX creates:
-
-```text
-term → documents containing term
-```
-
-Example:
-
-```text
-react →
-    doc 1
-    doc 5
-    doc 17
-
-hooks →
-    doc 5
-    doc 17
-    doc 30
-```
-
-The index can be represented using TypeScript `Map` structures.
-
-For V1, the index can remain in memory after being built from SQLite.
-
----
-
-# 19. Field-Aware Postings
-
-Field information must be preserved during indexing because ranking will treat different fields differently.
-
-A posting should look conceptually like:
+The index maps each normalized term to the documents containing it. Each posting preserves term frequency by field:
 
 ```ts
 type Posting = {
-    docId: number;
-    titleTF: number;
-    headingTF: number;
-    bodyTF: number;
+  docId: number;
+  titleTF: number;
+  headingTF: number;
+  bodyTF: number;
 };
 ```
 
-Example:
+Keeping these fields separate allows a match in a title to contribute differently from a match in body text.
 
-```text
-react →
+### BM25 ranking
 
-doc 5
-    titleTF   = 1
-    headingTF = 2
-    bodyTF    = 4
+QueryX uses BM25 with separate contributions for titles, headings, and body text. The current field weights are:
 
-doc 17
-    titleTF   = 0
-    headingTF = 1
-    bodyTF    = 8
-```
+| Field | Weight |
+|---|---:|
+| Title | 3 |
+| Heading | 2 |
+| Body | 1 |
 
-This allows ranking to distinguish:
+The implementation uses `k1 = 1.2` and `b = 0.75`, with a smoothed inverse-document-frequency calculation. Document-length statistics and average field lengths are calculated when the index is built.
 
-```text
-"react" in title
-```
+These values are initial engineering choices, not universal constants. A future evaluation suite can help determine whether changes improve search quality.
 
-from:
+### Top-K selection
 
-```text
-"react" once in body text
-```
-
-without requiring the HTML to be parsed again.
-
-V1 does not require a positional index.
-
----
-
-# 20. Query Processing
-
-A query follows the same normalization pipeline as documents.
-
-Example:
-
-```text
-"React Hooks!"
-```
-
-becomes:
-
-```text
-["react", "hooks"]
-```
-
-Each term is looked up in the inverted index.
-
-For example:
-
-```text
-react → {1, 5, 17, 42}
-hooks → {5, 17, 30}
-```
-
-The engine creates candidate documents from these postings.
-
-Documents that match more query terms can receive higher scores.
-
----
-
-# 21. Ranking
-
-The initial ranking algorithm is TF-IDF.
-
-## Term Frequency
-
-A simple TF value can be based on the number of times a term appears in a field.
-
-Conceptually:
-
-```text
-TF(term, document)
-```
-
-## Document Frequency
-
-The number of documents containing a term:
-
-```text
-DF(term)
-```
-
-## Inverse Document Frequency
-
-A common form is:
-
-```text
-IDF(term) = log(N / DF(term))
-```
-
-where:
-
-```text
-N = total number of documents
-```
-
-The exact smoothed formula can be selected during implementation.
-
-## TF-IDF
-
-A basic relevance contribution is:
-
-```text
-TF-IDF = TF × IDF
-```
-
-Multiple query terms can contribute to the document score.
-
----
-
-# 22. Field Boosting
-
-QueryX preserves title, heading, and body term frequencies.
-
-A conceptual ranking model is:
-
-```text
-score =
-    title contribution × title boost
-  + heading contribution × heading boost
-  + body contribution × body boost
-```
-
-For example:
-
-```text
-Title   × 3
-Heading × 2
-Body    × 1
-```
-
-These are initial tuning values, not fixed mathematical truths.
-
-They should be evaluated using real queries.
-
-BM25 may later replace TF-IDF while keeping the same field-aware index.
-
----
-
-# 23. Top-K Min-Heap
-
-Suppose:
-
-```text
-1,000 candidate documents
-```
-
-but only:
-
-```text
-10 results
-```
-
-are needed.
-
-A full sort would be:
-
-```text
-Score all candidates
-        ↓
-Sort all candidates
-        ↓
-Take first 10
-```
-
-QueryX instead maintains a Min-Heap of size K:
-
-```text
-candidate
-   ↓
-calculate score
-   ↓
-heap size < K?
-   ↓
-insert
-   ↓
-otherwise compare against minimum
-   ↓
-replace if better
-```
-
-This provides a practical application for the Priority Queue / Min-Heap data structure.
-
----
-
-# 24. Snippet Generation
-
-Search results should display a small relevant section of the document.
-
-Example:
-
-```text
-React Hooks – React Documentation
-https://react.dev/reference/react/hooks
-
-Hooks let you use state and other React features
-without writing a class...
-```
-
-V1 snippet generation can remain simple.
-
-The algorithm can:
-
-1. Normalize query terms.
-2. Search for a matching occurrence in the stored text.
-3. Find a surrounding character window.
-4. Return a short excerpt.
-
-For example:
-
-```text
-±150 characters
-```
-
-around a relevant match.
-
-A positional index is not required for V1.
-
-If benchmarks show that snippet generation becomes expensive, sentence boundaries or term positions can be investigated later.
-
----
-
-# 25. Trie Autocomplete
-
-QueryX uses a Trie for prefix-based term suggestions.
-
-Example:
-
-```text
-        root
-         |
-         r
-         |
-         e
-       /   \
-      a     d
-      |
-      c
-      |
-      t
-```
-
-Typing:
-
-```text
-rea
-```
-
-can produce:
-
-```text
-react
-reactive
-reaction
-```
-
-The Trie should be built from the indexed vocabulary.
-
-## Phrase suggestions
-
-A pure word Trie cannot naturally produce:
-
-```text
-react hooks
-react router
-```
-
-from individual tokens alone.
-
-Therefore V1 can maintain a lightweight second suggestion source using:
-
-- document titles
-- headings
-
-For example:
-
-```text
-React Hooks
-React Router
-React Server Components
-```
-
-This allows phrase-style suggestions without generating a huge collection of every possible n-gram.
-
----
-
-# 26. Next.js Application
-
-Next.js provides the local search interface.
-
-The main page should contain:
-
-```text
-QueryX
-
-[ Search query........................ ]
-
-[autocomplete suggestions]
-
------------------------------------------
-
-Result title
-URL
-Snippet
-
-Result title
-URL
-Snippet
-```
-
-The frontend can also show:
-
-```text
-Documents indexed: 1,247
-Search time: 18 ms
-```
-
-These metrics are useful during development and benchmarking.
-
----
-
-# 27. Index Lifecycle and Runtime State
-
-The document database is persistent.
-
-The in-memory search index is derived from SQLite.
-
-The intended lifecycle is:
-
-```text
-Crawler
-   ↓
-SQLite
-   ↓
-Indexer
-   ↓
-In-memory Inverted Index + Trie
-   ↓
-Search API
-```
-
-The crawler and indexer should be explicit operations rather than being triggered every time the web application starts.
-
-For example:
-
-```bash
-npm run crawl
-npm run index
-npm run dev
-```
-
-In Next.js development mode, module reloads can recreate module-level state.
-
-Therefore QueryX should use a development-safe singleton strategy for the in-memory search engine where necessary.
-
-A global singleton can prevent accidental duplication during Fast Refresh.
-
-A separate search process is intentionally not required for V1.
-
-If runtime constraints become a genuine bottleneck, process separation can be investigated in a later version.
-
----
-
-# 28. Configuration
-
-Crawler configuration should be centralized.
-
-Example:
-
-```ts
-export const crawlerConfig = {
-    maxPages: 100,
-    maxDepth: 2,
-    maxPagesPerDomain: 50,
-
-    requestDelayMs: 1000,
-    requestTimeoutMs: 10000,
-
-    maxResponseSizeBytes: 5 * 1024 * 1024,
-
-    seeds: [
-        "https://developer.mozilla.org/",
-        "https://react.dev/"
-    ]
-};
-```
-
-The initial configuration should be conservative.
-
-The limits can later be increased after testing.
-
----
-
-# 29. Installation
-
-Create the project with Next.js and TypeScript.
-
-Then install the crawler and storage dependencies:
-
-```bash
-npm install htmlparser2 robots-parser better-sqlite3
-```
-
-Install TypeScript types for SQLite:
-
-```bash
-npm install -D @types/better-sqlite3
-```
-
-The exact package versions should be determined by the project's `package.json` and lockfile.
-
----
-
-# 30. Running QueryX
-
-The intended workflow is:
-
-### Start with a small crawl
-
-```bash
-npm run crawl
-```
-
-This should:
-
-```text
-Seed URLs
-   ↓
-Crawler
-   ↓
-SQLite
-```
-
-### Build the index
-
-```bash
-npm run index
-```
-
-This should:
-
-```text
-SQLite
-   ↓
-Indexer
-   ↓
-Inverted Index + Trie
-```
-
-### Start the frontend
-
-```bash
-npm run dev
-```
-
-Then open:
-
-```text
-http://localhost:3000
-```
-
-The exact npm scripts will be defined during implementation.
-
----
-
-# 31. Development Workflow
-
-QueryX should be developed incrementally.
-
-Do not implement the entire search engine before testing individual components.
-
-Recommended order:
-
-```text
-Phase 0
-Project Setup
-     ↓
-Phase 1
-URL Canonicalization
-     ↓
-Phase 2
-Crawler
-     ↓
-Phase 3
-HTML Parser
-     ↓
-Phase 4
-SQLite
-     ↓
-Phase 5
-Text Processing
-     ↓
-Phase 6
-Inverted Index
-     ↓
-Phase 7
-Query + Ranking
-     ↓
-Phase 8
-Top-K + Snippets
-     ↓
-Phase 9
-Trie
-     ↓
-Phase 10
-Next.js UI
-     ↓
-Phase 11
-Integration
-     ↓
-Benchmark
-```
-
-Each phase should have a working test before moving forward.
-
----
-
-# 32. Testing Strategy
-
-Testing should focus on correctness of the individual components.
-
-## URL Canonicalization
-
-Test:
-
-```text
-trailing slash
-fragment removal
-relative URLs
-absolute URLs
-tracking parameters
-invalid URLs
-```
-
-## Queue
-
-Test:
-
-```text
-FIFO behavior
-empty queue
-multiple insertions
-```
-
-## Visited Set
-
-Test:
-
-```text
-duplicate URL
-canonicalized duplicates
-```
-
-## Parser
-
-Use saved HTML fixtures.
-
-Verify:
-
-```text
-title
-headings
-body
-links
-```
-
-## Tokenizer
-
-Test:
-
-```text
-punctuation
-uppercase
-whitespace
-numbers
-special characters
-```
-
-## Inverted Index
-
-Given:
-
-```text
-doc 1: React Hooks
-doc 2: React Router
-```
-
-verify:
-
-```text
-react → doc 1, doc 2
-hooks → doc 1
-router → doc 2
-```
-
-## Trie
-
-Test:
-
-```text
-insert
-search
-prefix search
-missing prefix
-```
-
-## Ranking
-
-Create small controlled documents where expected ordering is obvious from the scoring rules.
-
-## Min-Heap
-
-Test:
-
-```text
-K = 3
-many scored documents
-```
-
-and verify that only the three highest scores remain.
-
----
-
-# 33. Benchmarking
-
-Benchmarking is an important part of QueryX.
-
-The system should be tested at increasing corpus sizes.
-
-## Dataset 1
-
-```text
-100 documents
-```
-
-Measure:
-
-- Crawl time
-- Database size
-- Index build time
-- Index memory
-- Search latency
-
-## Dataset 2
-
-```text
-1,000 documents
-```
-
-Repeat the measurements.
-
-## Dataset 3
-
-```text
-2,000–5,000 documents
-```
-
-Repeat if the system remains stable.
-
-Example benchmark table:
-
-| Metric | 100 | 1,000 | 5,000 |
-|---|---:|---:|---:|
-| Crawl time | | | |
-| SQLite size | | | |
-| Index build time | | | |
-| Index memory | | | |
-| Search latency | | | |
-| Autocomplete latency | | | |
-
-The benchmark should guide future architectural decisions.
-
----
-
-# 34. Performance Expectations
-
-QueryX V1 is not designed for millions of pages.
-
-The intended scale is:
-
-```text
-~1,000 pages initially
-~2,000–5,000 pages eventually
-```
-
-At this scale:
-
-- SQLite is sufficient.
-- An in-memory Map-based index is reasonable.
-- A Trie is reasonable.
-- A single-machine crawler is sufficient.
-- A simple Min-Heap is sufficient.
-
-The project should not introduce more infrastructure simply because production search engines use it.
-
----
-
-# 35. Failure Handling
-
-The crawler should expect failures.
-
-Possible failures include:
-
-- DNS errors
-- connection errors
-- timeout
-- HTTP 404
-- HTTP 403
-- HTTP 429
-- HTTP 500
-- malformed HTML
-- oversized response
-- unsupported content type
-- invalid URL
-- robots.txt restrictions
-
-A failed URL should not crash the entire crawl.
-
-The crawler should record or log the failure and continue with other tasks where appropriate.
-
----
-
-# 36. V1 Milestones
-
-## Milestone 1 — Project Setup
-
-The project runs successfully.
-
-```text
-Next.js
-SQLite dependency
-crawler structure
-```
-
----
-
-## Milestone 2 — URL System
-
-Working:
-
-```text
-canonicalizeUrl()
-Queue
-Visited Set
-```
-
----
-
-## Milestone 3 — Basic Crawler
-
-QueryX can:
-
-```text
-Seed
-→ fetch
-→ parse links
-→ queue links
-→ crawl multiple pages
-```
-
----
-
-## Milestone 4 — Safe Crawler
-
-Add:
-
-```text
-robots.txt
-depth limit
-domain limit
-page limit
-timeouts
-response limits
-delay
-```
-
----
-
-## Milestone 5 — Document Store
-
-Real pages are stored in SQLite.
-
----
-
-## Milestone 6 — Indexer
-
-SQLite documents become:
-
-```text
-Inverted Index
-```
-
-with field-aware postings.
-
----
-
-## Milestone 7 — Search
-
-QueryX can:
-
-```text
-query
-→ retrieve
-→ score
-→ rank
-→ return results
-```
-
----
-
-## Milestone 8 — Top-K
-
-Ranking uses a Min-Heap to maintain the best K results.
-
----
-
-## Milestone 9 — Snippets
-
-Results contain useful text excerpts.
-
----
-
-## Milestone 10 — Autocomplete
-
-Trie-based prefix suggestions work.
-
----
-
-## Milestone 11 — UI
-
-The complete search interface works.
-
----
-
-## Milestone 12 — Benchmark
-
-The system is tested at:
-
-```text
-100
-1,000
-2,000–5,000
-```
-
-documents.
-
----
-
-# 37. V1 Acceptance Criteria
-
-QueryX V1 is considered complete when the following workflow works:
-
-### Crawling
-
-```text
-npm run crawl
-```
-
-successfully discovers and stores a controlled collection of real webpages.
-
-### Storage
-
-SQLite contains documents with:
-
-```text
-URL
-Title
-Headings
-Text
-Metadata
-```
-
-### Indexing
-
-```text
-npm run index
-```
-
-creates:
-
-```text
-Field-aware inverted index
-Trie
-```
-
-### Search
-
-A query such as:
-
-```text
-react hooks
-```
-
-produces ranked results.
-
-### Ranking
-
-Results are scored using:
-
-```text
-TF-IDF
-```
-
-or the implemented BM25 upgrade.
-
-Title and heading matches can influence relevance.
-
-### Top-K
-
-The engine uses a Min-Heap / Priority Queue to maintain the best K results.
+QueryX includes a Min-Heap implementation that retains the highest-scoring `K` documents and sorts the selected results before returning them. The current ranking function also sorts scored documents, so avoiding that redundant full sort is a known optimization opportunity.
 
 ### Snippets
 
-Results contain relevant text excerpts.
+For each selected result, QueryX retrieves the document's title, URL, and text from SQLite. The snippet generator searches for the earliest query-term substring and returns a bounded text window around it, adding ellipses when text has been omitted.
 
-### Autocomplete
+Snippet generation is intentionally simple in the current version. It does not yet highlight matches or guarantee token-boundary matching.
 
-Typing:
+## Autocomplete
 
-```text
-rea
-```
-
-produces relevant suggestions.
-
-### UI
-
-The complete flow works from:
+Autocomplete uses a Trie constructed from the terms in the inverted index.
 
 ```text
-Browser
-→ Search Box
-→ API
-→ Search Engine
-→ Results
+User types: react ho
+                 |
+                 v
+        Current prefix: ho
+                 |
+                 v
+             Trie lookup
+                 |
+                 v
+      Filter and rank matching terms
+                 |
+                 v
+        Complete the existing query
 ```
 
-### Persistence
+The suggestions module preserves the already-entered portion of the query and completes its final word. Candidate terms are filtered and ordered by document frequency, then alphabetically. The API defaults to eight suggestions and caps the requested number at ten.
 
-Restarting the application does not delete crawled documents.
+The frontend debounces requests, tracks request IDs to ignore stale responses, and supports keyboard navigation and dismissal. The homepage also has a separate set of static example queries that rotate before the user performs a search.
 
----
+## Technology Stack
 
-# 38. Future V2 Ideas
+| Area | Technologies |
+|---|---|
+| Frontend and API | Next.js, React, TypeScript |
+| Styling and icons | Tailwind CSS, Lucide |
+| Crawling and parsing | Node.js, native `fetch`, `htmlparser2`, `robots-parser` |
+| Persistent storage | SQLite, `better-sqlite3` |
+| Search structures | TypeScript `Map`, Trie, Min-Heap |
+| Ranking | Field-aware BM25 |
+| Development | Git, GitHub, VS Code |
 
-V2 features should only be introduced when V1 measurements or real search-quality limitations justify them.
+## Project Structure
 
-Possible extensions include:
-
-## Persistent Index
-
-If the inverted index becomes too large for memory:
+The main source directories are organized by responsibility:
 
 ```text
-Memory Index
-     ↓
-Persistent Segments
+queryx/
+├── app/
+│   ├── api/
+│   │   └── search/
+│   │       ├── route.ts
+│   │       └── suggestions/
+│   │           └── route.ts
+│   ├── page.tsx
+│   ├── layout.tsx
+│   └── globals.css
+├── components/
+│   ├── icons/
+│   └── search/
+│       ├── SearchBar.tsx
+│       ├── SearchHeader.tsx
+│       ├── SearchResults.tsx
+│       └── SearchSuggestions.tsx
+├── config/
+│   └── crawler.ts
+├── crawler/
+│   ├── canonicalize.ts
+│   ├── crawler.ts
+│   ├── fetcher.ts
+│   ├── frontier.ts
+│   ├── parser.ts
+│   ├── robots.ts
+│   ├── safety.ts
+│   └── types.ts
+├── indexer/
+│   ├── build-index.ts
+│   ├── build-trie.ts
+│   ├── inverted-index.ts
+│   ├── tokenizer.ts
+│   ├── trie.ts
+│   └── types.ts
+├── parser/
+│   ├── html-parser.ts
+│   └── types.ts
+├── search/
+│   ├── engine.ts
+│   ├── query.ts
+│   ├── ranking.ts
+│   ├── snippets.ts
+│   ├── suggestions.ts
+│   ├── top-k.ts
+│   └── test-*.ts
+├── storage/
+│   ├── database.ts
+│   ├── document.ts
+│   └── schema.ts
+├── types/
+│   └── search.ts
+├── data/                 # Local database; should not be committed
+├── package.json
+└── README.md
 ```
 
-could be investigated.
+The exact file list may evolve as the project develops.
 
----
+## Getting Started
 
-## Radix Tree
+### Prerequisites
 
-If Trie memory consumption becomes significant:
+- Node.js compatible with the versions specified by the project
+- npm
+- Git
 
-```text
-Trie
- ↓
-Radix Tree
+`better-sqlite3` is a native dependency, so use a Node.js version supported by the package and the project's lockfile.
+
+### Install dependencies
+
+```bash
+npm install
 ```
 
-could reduce redundant prefix nodes.
+### Start the development server
 
----
-
-## Better Ranking
-
-Possible upgrades:
-
-```text
-TF-IDF
- ↓
-BM25
- ↓
-Field-aware BM25
+```bash
+npm run dev
 ```
 
----
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## PageRank
+The search engine builds its in-memory index from the local SQLite database when the search module is initialized. Make sure the database has documents before expecting meaningful search results.
 
-If link structure becomes useful:
+> **Note:** Check `package.json` for the exact crawler and test scripts available in your checkout. This README intentionally does not assume script names that may differ between project versions.
 
-```text
-Web Graph
- ↓
-PageRank
- ↓
-Ranking Boost
+## Development and Tests
+
+The repository contains focused test scripts for core components, including:
+
+- URL canonicalization and crawl frontier behavior
+- Fetching, parsing, robots rules, and crawler safety
+- Tokenization and inverted-index construction
+- Trie construction and autocomplete
+- Query processing and BM25 ranking
+- Top-K selection and snippet generation
+- SQLite storage
+
+Several current test scripts print their outputs for manual inspection. A planned improvement is a repeatable search-quality evaluation suite using fixed queries and labeled relevant documents.
+
+Example direct test commands, assuming `tsx` is available in the project:
+
+```bash
+npx tsx search/test-query.ts
+npx tsx search/test-ranking.ts
+npx tsx search/test-top-k.ts
+npx tsx search/test-snippets.ts
 ```
 
----
+Run these from the `queryx/` directory. Check each test's imports and side effects before running it; some scripts open the local database and close it when finished.
 
-## Positional Index
+## Current Design Notes
 
-If phrase search becomes necessary:
+### Local-first by design
 
-```text
-term
- ↓
-document
- ↓
-positions
-```
+- SQLite is the persistent source of crawled documents.
+- The inverted index and Trie are derived in-memory structures.
+- No hosted search service, cloud database, vector database, or distributed infrastructure is required.
 
-could be introduced.
+### Index lifecycle
 
----
+The current search engine and suggestions module build their in-memory structures at module initialization. Database changes made afterward do not automatically refresh those structures. An explicit and reliable index lifecycle is a future improvement.
 
-## Spelling Correction
+### Ranking and evaluation
 
-A future version could support:
+BM25 is implemented and has diagnostic tests, but ranking quality has not yet been established through a formal relevance benchmark. The next evaluation milestone is to define representative queries and relevance judgments, then calculate metrics such as Precision@K, Recall@K, and Mean Reciprocal Rank (MRR).
 
-```text
-react hoks
-     ↓
-react hooks
-```
+### Known improvement opportunities
 
-using edit distance or another spelling model.
+- Avoid sorting all scored documents before applying the Top-K heap.
+- Add reproducible search-quality evaluation.
+- Improve snippets with better match boundaries and optional highlighting.
+- Add an explicit index refresh/rebuild lifecycle.
+- Distinguish API failures from valid searches that return no results.
 
----
+## Roadmap
 
-## Semantic Search
+Planned work, subject to test results and project priorities:
 
-A much later version could investigate:
+- [ ] Build a labeled search evaluation dataset.
+- [ ] Measure Precision@K, Recall@K, and MRR.
+- [ ] Record a ranking baseline before tuning.
+- [ ] Remove redundant work in the ranking and Top-K pipeline.
+- [ ] Improve snippet relevance and presentation.
+- [ ] Make index refresh and rebuild behavior explicit.
+- [ ] Benchmark indexing, search, and autocomplete as the corpus grows.
 
-```text
-Documents
- ↓
-Embeddings
- ↓
-Vector Search
-```
+The roadmap is deliberately measurement-driven: improve the system based on observed quality or performance limitations rather than adding infrastructure prematurely.
 
-This is intentionally outside V1.
+## Design Principles
 
----
+1. **Build the fundamentals.** Implement the core retrieval structures and algorithms directly.
+2. **Keep components focused.** Crawling, storage, indexing, ranking, and UI should have clear responsibilities.
+3. **Preserve useful information.** Keep title, heading, and body statistics separate so ranking can use them.
+4. **Separate source data from derived state.** SQLite stores documents; indexes are rebuilt from that source.
+5. **Measure before optimizing.** Use repeatable tests and benchmarks to guide changes.
+6. **Keep the system local and understandable.** Avoid infrastructure that does not solve a demonstrated problem.
 
-## Distributed Crawling
+## Responsible Crawling
 
-Only if corpus size genuinely demands it:
+QueryX is an educational project intended to crawl a controlled set of websites conservatively.
 
-```text
-Crawler Coordinator
-        ↓
-Workers
-        ↓
-Distributed Frontier
-```
+- Respect applicable `robots.txt` rules.
+- Use reasonable request delays and timeouts.
+- Limit crawl depth, page counts, and response sizes.
+- Avoid unnecessary requests and unsupported resources.
+- Do not bypass authentication, access controls, or rate limits.
+- Review each site's policies before crawling it.
 
-This is a future systems-design exercise, not part of the initial project.
+## Learning Outcomes
 
----
+QueryX brings together concepts that are often studied separately:
 
-# 39. Design Principles
+- Queue-based crawling and URL deduplication
+- URL canonicalization and HTML parsing
+- Persistent storage with SQLite
+- Tokenization and inverted indexes
+- Term frequency and document frequency
+- Field-aware BM25 ranking
+- Trie-based prefix completion
+- Min-Heap Top-K selection
+- API and frontend integration
+- Testing, evaluation, and performance measurement
 
-QueryX follows several principles.
-
-## 1. Build the smallest useful system
-
-Every feature should have a clear purpose.
-
----
-
-## 2. Prefer real bottlenecks over imagined bottlenecks
-
-Do not introduce:
-
-```text
-Redis
-Kafka
-C++
-distributed workers
-```
-
-because large systems use them.
-
-Introduce them only when QueryX demonstrates a problem that requires them.
+The central objective is to understand how these components combine into a working search system.
 
 ---
 
-## 3. Preserve information early
-
-The index must preserve information required by later stages.
-
-For example:
-
-```text
-title
-heading
-body
-```
-
-must remain distinguishable because ranking needs field information.
-
----
-
-## 4. Separate persistent data from derived data
-
-SQLite contains the source documents.
-
-The inverted index and Trie are derived structures.
-
-Conceptually:
-
-```text
-SQLite
-   ↓
-Derived Search Structures
-```
-
-This allows the search structures to be rebuilt.
-
----
-
-## 5. Make every DSA meaningful
-
-A data structure should exist because it solves a real problem.
-
-Not because it looks impressive in a README.
-
----
-
-## 6. Measure before optimizing
-
-The benchmark determines the next architectural decision.
-
----
-
-# 40. Learning Objectives
-
-By completing QueryX V1, the developer should understand:
-
-### Data Structures
-
-- Queue
-- HashSet
-- HashMap / Map
-- Trie
-- Min-Heap
-- Graph concepts
-
-### Algorithms
-
-- Breadth-first crawling
-- URL canonicalization
-- Tokenization
-- Index construction
-- Candidate retrieval
-- TF-IDF
-- BM25
-- Top-K selection
-
-### Databases
-
-- SQLite
-- schema design
-- constraints
-- indexes
-- persistence
-- querying
-
-### Web Systems
-
-- HTTP
-- URLs
-- redirects
-- content types
-- robots.txt
-- crawling
-- HTML parsing
-
-### Search Engines
-
-- documents
-- terms
-- inverted indexes
-- postings
-- TF
-- DF
-- IDF
-- ranking
-- snippets
-- autocomplete
-
-### Software Architecture
-
-- modular design
-- data pipelines
-- persistent vs derived state
-- runtime state
-- benchmarking
-- incremental optimization
-
-The ultimate learning objective is to understand how the individual pieces combine into a functioning search system rather than merely implementing isolated algorithms.
-
----
-
-# 41. License and Responsible Crawling
-
-QueryX is intended as a local educational project.
-
-The crawler should operate conservatively.
-
-It should:
-
-- respect `robots.txt`
-- use reasonable request delays
-- limit crawl depth
-- limit pages per domain
-- avoid unnecessary requests
-- ignore unsupported large resources
-- stop when configured limits are reached
-
-The seed domains should be chosen carefully, and their crawling policies should be respected.
-
-QueryX should not be used to aggressively crawl websites or bypass access controls, rate limits, authentication, or other restrictions.
-
----
-
-# Final Architecture
-
-The final V1 system can be summarized as:
-
-```text
-                    QUERYX V1
-                        │
-          ┌─────────────┴─────────────┐
-          │                           │
-       CRAWLING                  SEARCH UI
-          │                           │
-     Seed URLs                    Next.js
-          │                           │
-     URL Frontier               Search Box
-          │                           │
-    Queue + HashSet            Autocomplete
-          │                           │
- URL Canonicalization                │
-          │                           │
- Per-Domain Scheduling               │
-          │                           │
-      robots.txt                     │
-          │                           │
-       HTTP Fetch                    │
-          │                           │
-    htmlparser2                      │
-          │                           │
- ┌────────┼─────────┐                 │
- │        │         │                 │
-Title  Headings    Body               │
- └────────┼─────────┘                 │
-          │                           │
-        SQLite                        │
-          │                           │
-       Indexer                        │
-          │                           │
- ┌────────┴─────────┐                 │
- │                  │                 │
-Inverted Index      Trie              │
- │                  │                 │
- │              Suggestions           │
- │                                    │
- Query Processing                     │
- │                                    │
- Candidate Retrieval                  │
- │                                    │
- TF-IDF / BM25                        │
- │                                    │
- Field Boosting                       │
- │                                    │
- Min-Heap Top-K                       │
- │                                    │
- SQLite Metadata                      │
- │                                    │
- Snippet Generation                   │
- │                                    │
- └───────────────→ Search API ────────┘
-                         │
-                         ▼
-                   Ranked Results
-```
-
-QueryX V1 is deliberately small enough to finish, but large enough to demonstrate a complete real-world search-engine pipeline.
-
-The guiding principle is:
-
-> **Build the fundamental system first. Measure it. Then let real bottlenecks determine what comes next.**
+> **Build the fundamentals. Measure the results. Let real bottlenecks determine what comes next.**
